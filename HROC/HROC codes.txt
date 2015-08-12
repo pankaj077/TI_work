@@ -1,0 +1,384 @@
+%macro clean;
+
+	proc datasets lib=work kill nolist memtype=data;
+	quit;
+
+%mend clean;
+
+%macro n1;
+
+	PROC IMPORT OUT= Input DATAFILE= "/apps/sas/HR/Public/HROC_Tool/HROC_volume.xlsx" 
+		DBMS=xlsx REPLACE;
+		SHEET="Total";
+		GETNAMES=YES;
+	RUN;
+
+%mend n1;
+
+%macro n2;
+
+	PROC IMPORT OUT= Input DATAFILE= "/apps/sas/HR/Public/HROC_Tool/HROC_hours.xlsx" 
+		DBMS=xlsx REPLACE;
+		SHEET="Total";
+		GETNAMES=YES;
+	RUN;
+
+%mend n2;
+
+%macro n3;
+
+	PROC IMPORT OUT= Input DATAFILE= "/apps/sas/HR/Public/HROC_Tool/HROC_mbv.xlsx" 
+		DBMS=xlsx REPLACE;
+		SHEET="Total";
+		GETNAMES=YES;
+	RUN;
+
+%mend n3;
+
+
+%macro n4;
+
+	PROC IMPORT OUT= Input DATAFILE= "/apps/sas/HR/Public/HROC_Tool/HROC_mytime.xlsx" 
+		DBMS=xlsx REPLACE;
+		SHEET="Total";
+		GETNAMES=YES;
+	RUN;
+
+%mend n4;
+
+%macro base_process;
+
+	data Raw_main;
+		set Input;
+		Task= compress(Task," ");
+	run;
+
+	proc transpose data=Raw_main out=Raw0  name=Task label=Task;
+		id Task;
+	run;
+
+	data Raw;
+		set raw0;
+		task1 = input(task,8.);
+		t=task1-21916;
+		format t date9.;
+		drop task1;
+	run;
+
+	data Raw2;
+		set Raw;
+		Overall = sum(of _numeric_);
+		trend+1;
+
+		if month<12 then
+			month+1;
+		else month=1;
+		Drop Task;
+	run;
+
+%mend base_process;
+
+/*Start here for less than 15 logic*/
+%macro when_base;
+
+	data x;
+		set raw2;
+	run;
+
+	proc contents data = x
+		out = vars(keep = varnum name)
+		noprint;
+	run;
+
+	data _null_;
+		set vars;
+		call symput ("n", _n_);
+		call symput ("vart", name);
+	run;
+
+%mend when_base;
+
+%macro when;
+	%do i=1 %to &n.;
+
+		data _null_;
+			set vars (firstobs=&i. obs=&i.);
+			call symput ("vart", name);
+		run;
+
+		data x_&vart.;
+			set raw2 (keep=&vart.);
+		run;
+
+		proc freq data=x_&vart. noprint;
+			tables &vart. / norow nocol nocum nopercent out=why_x_&vart. (drop=percent);
+		run;
+
+		data what_x_&vart.;
+			set why_x_&vart.;
+
+			*call symput ("noi", _n_);
+			if &vart. ne 0;
+		run;
+
+		proc means data=what_x_&vart. noprint;
+			var count;
+			output out=sum_x_&vart. (drop=_type_ _freq_) sum=;
+		run;
+
+		data fin_sum_x_&vart.;
+			set sum_x_&vart.;
+			var_name="&vart.";
+		run;
+
+		proc append base=finalel data=fin_sum_x_&vart. force;
+		run;
+
+	%end;
+
+	proc datasets gennum=all nodetails nolist;
+		delete why:;
+		delete x_:;
+		delete what:;
+		delete sum_x:;
+		delete fin_:;
+	quit;
+
+%mend;
+
+%macro contents;
+
+	data finalel;
+		set finalel;
+		rename var_name= name;
+	run;
+
+	data Main_list;
+		set finalel;
+		where name not in ("t","trend","month");
+	run;
+
+	data contents;
+		set finalel;
+		where count>15 and name not in ("t","trend","month");
+	run;
+
+%mend contents;
+
+/*End here for less than 15 logic*/
+%macro frcst;
+
+	proc sql noprint;
+		select name into :varlist separated by ' '
+			from contents
+		;
+		%let n=&sqlobs;
+	quit;
+
+	%do i=1 %to &n;
+		%let actual = %scan(&varlist,&i);
+
+		proc forecast data=Raw2 interval=month lead=12 method=WINTERS TREND=1 seasons=month out=pred_ outfull outresid outest=est outfitstats;
+			var &actual;
+			id t;
+		run;
+
+		data forecast (drop=_lead_);
+			set pred_;
+
+			if _type_='FORECAST';
+			rename &actual=forecast;
+			drop _type_;
+		run;
+
+		data Final_&actual;
+			merge Raw2 forecast;
+			by t;
+
+			if &actual not in (0,.) then
+				pe=abs(forecast-&actual)/&actual;
+			else pe=.;
+		run;
+
+		proc means data=Final_&actual noprint;
+			var pe;
+			output out=error_&actual mean=;
+		run;
+
+		data F_&i (keep=t &actual);
+			set Final_&actual;
+
+			if month = .;
+			drop &actual;
+			rename forecast=&actual;
+		run;
+
+		%if &i=1 %then
+			%do;
+
+				data Base;
+					set f_&i;
+				run;
+
+			%end;
+		%else
+			%do;
+
+				data base;
+					merge base f_&i;
+					by t;
+				run;
+
+			%end;
+	%end;
+%mend frcst;
+
+%macro create_output;
+
+	data base;
+		set base;
+		drop month;
+	run;
+
+	proc transpose data=base out=base2  name=t label=t;
+		id t;
+	run;
+
+	data base2;
+		set base2;
+		where t ne "Overall";
+		rename t=Task;
+	run;
+
+	proc sort data=base2;
+		by Task;
+	run;
+
+	data Raw_original;
+		set raw2;
+		drop trend;
+		drop month;
+	run;
+
+	proc transpose data=Raw_original out=Raw_original2  name=t label=t;
+		id t;
+	run;
+
+	data Raw_original2;
+		set Raw_original2;
+		where t ne "Overall";
+		rename t=Task;
+	run;
+
+	proc sort data=Raw_original2;
+		by Task;
+	run;
+
+	data Output1;
+		merge Raw_original2 base2;
+		by Task;
+	run;
+
+	proc export data=output1
+		outfile="/apps/sas/HR/Public/HROC_Tool/HROC_out.csv" 
+		dbms=csv replace;
+	run;
+
+%mend create_output;
+
+%macro choice;
+	%if (&prompt eq 1) %then
+		%do;
+			%n1;
+			%let taskname = "Volume";
+		%end;
+	%else %if (&prompt eq 2) %then
+		%do;
+			%n2;
+			%let taskname = "Hours";
+		%end;
+	%else %if (&prompt eq 3) %then
+		%do;
+			%n3;
+			%let taskname = "Mail Bucket Volume";
+		%end;	
+	%else %if (&prompt eq 4) %then
+		%do;
+			%n4;
+			%let taskname = "My Time";
+		%end;				
+%mend choice;
+
+%macro send_email;
+
+FILENAME output EMAIL 
+     SUBJECT="HROC - DETAIL REPORT %sysfunc(date(),yymmdd10.)" 
+     FROM= "TargetIndia-HRAnalytics@target.com" 
+     TO= "&email."
+     ATTACH= "/apps/sas/HR/Public/HROC_Tool/HROC_out.csv";
+
+DATA _NULL_;
+     FILE output;
+     	put 'Please find attached the ' &taskname ' detailed report.' ;
+		
+		put  'For any queries reach out to the Talent optimization scrum -EDABI / Thomas.Hughes@target.com';
+RUN;
+
+%mend send_email;
+
+%macro prompt_frcst;
+
+	%choice;
+	%base_process;
+	%when_base;
+	%put &n.;
+	%when;
+	%contents;
+	%frcst;
+	%create_output;
+	%send_email;	
+			
+%mend prompt_frcst;
+
+%macro prompt_instr;
+
+FILENAME output EMAIL 
+     SUBJECT="HROC - DETAIL REPORT %sysfunc(date(),yymmdd10.)" 
+     FROM= "TargetIndia-HRAnalytics@target.com" 
+     TO= "&email."
+     ATTACH= "/apps/sas/HR/Public/HROC_Tool/HROC_Tool_instructions.docx";
+
+DATA _NULL_;
+     FILE output;
+     	put 'Please find attached the detailed Instructions for using the HROC tool.' ;
+		
+		put  'For any queries reach out to the Talent optimization scrum -EDABI / Thomas.Hughes@target.com';
+RUN;	
+			
+%mend prompt_instr;
+
+%macro category_choice;
+	%if (&prompt eq 5) %then
+		%do;
+			%prompt_instr;
+		%end;
+	%else
+		%do;
+			%prompt_frcst;
+		%end;
+%mend category_choice;
+
+
+%stpbegin;
+
+%global taskname;
+%category_choice;
+%clean;
+
+data _null_;
+Note="Please check your inbox for detailed report";
+file print ods ;
+put Note;
+run; 
+
+%stpend;
