@@ -1,0 +1,133 @@
+/*84% accuracy baby*/
+
+# Get the data 
+import pandas as pd
+filename='TI_TM10 back up.xlsx'
+sheet='Sheet4'
+Main_data = pd.read_excel(filename,sheetname=sheet,header=0)
+
+#Main_data.head()
+#Main_data.shape 
+#Main_data['Status'].value_counts()
+
+# Split the data into Training and Test set
+split1 = 10.0
+split2 = 0.0
+from sklearn.cross_validation import train_test_split
+from __future__ import division
+while True:  
+    Main_data_train, Main_data_test = train_test_split(Main_data,test_size=0.25)
+
+    Split_train= Main_data_train['Status'].value_counts()
+    Split_test= Main_data_test['Status'].value_counts()
+    
+    split1 = Split_train[1]/(Split_train[1]+Split_train[0])
+    split2 = Split_test[1]/(Split_test[1]+Split_test[0])
+    dif= abs(split1-split2)*100   
+    
+    if dif<1:
+        break
+    else:
+        continue
+
+        
+# Get features and labels
+import numpy as np
+y = Main_data_train[["Status"]]
+y_train=np.ravel(y)
+y_train.shape 
+
+colsToDrop = ['Emplid','Name','Status']
+X_train = Main_data_train.drop(colsToDrop, axis=1)
+#X_train = Main_data_train[['Pos_Tenure','Age']]
+#X_train = X_train.as_matrix(columns=None)
+#X_train.head()
+#X_train.shape 
+
+y2 = Main_data_test[["Status"]]
+y_test=np.ravel(y2)
+
+X_test = Main_data_test.drop(colsToDrop, axis=1)
+#X_test = Main_data_test[['Pos_Tenure','Age']]
+#X_test = X_test.as_matrix(columns=None)
+
+#EDA NOTES
+#Age and tenure are correlated
+#Hike and score are correlated
+
+# Dimensionality reduction (by feature selection) and Extratreeclassifier
+#Pipeline implementation
+from sklearn.svm import LinearSVC
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.pipeline import Pipeline
+clf = Pipeline([('feature_selection', LinearSVC(penalty="l1")),('classification', ExtraTreesClassifier())])
+
+clf=ExtraTreesClassifier()
+clf.fit(X_train,y_train)
+y_pred= clf.predict(X_test)
+
+#cross validation 
+from sklearn.metrics import mean_squared_error
+from sklearn.cross_validation import cross_val_score
+roc_auc=cross_val_score(rf,x,y,cv=10,scoring="roc_auc")
+
+accuracy= mean_squared_error(y_test,y_pred)
+accuracy
+
+from sklearn.neighbors import KNeighborsClassifier
+knn = KNeighborsClassifier(n_neighbors=5)
+#n_neighbors=1
+knn.fit(X_train,y_train)
+y_pred= knn.predict(X_test)
+
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression()
+logreg.fit(X_train,y_train)
+y_pred= logreg.predict(X_test)
+
+from sklearn.cluster import KMeans
+kmeans = KMeans(n_clusters=6)
+z= kmeans.fit_predict(X_train,y=None)
+z.shape
+type(X_train)
+
+Main_data_train1 = Main_data_train.as_matrix(columns=None)
+np.hstack((Main_data_train1,z))
+Main_data_train1.shape
+z.shape
+jy=pd.DataFrame(z)
+type(jy)
+jy.info()
+jy.head()
+
+df1= pd.concat([X_train,jy],axis=1)
+df1.info()
+X_train.head()
+
+
+
+from sklearn.cross_validation import cross_val_score
+from sklearn.ensemble import RandomForestClassifier 
+
+def rf_param(): 
+	alist=[] 
+	for i in range(100,900,100): 
+		rf=RandomForestClassifier(n_estimators=i) 
+		roc_auc=cross_val_score(rf,X_train,y_train,cv=10,scoring="roc_auc") 
+		mean_roc_auc=np.mean(roc_auc) 
+		adict={i:mean_roc_auc} 
+		alist.append(adict) 
+		check={k:v for d in alist for k,v in d.items()} 
+		max1=max(check.values()) 
+		key=[k for k,v in check.items() if v==max1] 
+		value=key[0] 
+	return value 
+ 
+rf1=RandomForestClassifier(n_estimators=rf_param()) 
+rf1.fit(X_train,y_train) 
+y_pred=rf1.predict(X_test) 
+from sklearn.metrics import roc_auc_score
+roc_auc_score(y_test, y_pred)
+
+predict_rf2=pd.DataFrame(predict_rf1) 
+predict_rf2.columns=["Prediction_RF"]
