@@ -1,5 +1,3 @@
-/*84% accuracy baby*/
-
 # Get the data 
 import pandas as pd
 filename='TI_TM10 back up.xlsx'
