@@ -46,7 +46,9 @@ for job in job_groups:
                 error_list.append(Error)    
             else:
                  break
-        if max(error_list)<10:
+        if not error_list:
+            break
+        elif max(error_list)<5:
             break
         else: 
             continue    
@@ -57,3 +59,22 @@ writer = pd.ExcelWriter('Sample_Out.xlsx', engine='xlsxwriter')
 Sample_Set.to_excel(writer, sheet_name='Sheet1')
 writer.save()
 
+##################### END CODE ##############################################
+
+#Pre-processing
+filename='Sampling_Data1.xlsx'
+sheet='Sample_info'
+df = pd.read_excel(filename,sheetname=sheet,header=0)
+
+def encode_target(df, target_column):
+    df_mod = df.copy()
+    targets = df_mod[target_column].unique()
+    map_to_int = {name: n for n, name in enumerate(targets)}
+    df_mod["Target"] = df_mod[target_column].replace(map_to_int)
+    return (df_mod, targets)
+	
+df2, JG2 = encode_target(df, "Job_Group")
+
+writer = pd.ExcelWriter('Mapping.xlsx', engine='xlsxwriter')
+df2.to_excel(writer, sheet_name='Sheet1')
+writer.save()
