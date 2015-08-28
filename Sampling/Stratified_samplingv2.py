@@ -21,7 +21,7 @@ stratum = ['Race','Gender','Job_Level','Location']
 #non_stratum = ['Emplid','Job_Group']
 
 # Sampling
-run_limit = 800
+run_limit = 1000
 run = 0
 random = 0
 i=0    
