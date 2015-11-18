@@ -1,0 +1,27 @@
+
+Libname PA "/apps/sas/HR/Public/Pankaj";
+Libname HRBI META  libid= A5OI04T1.B40002ER;
+
+proc sql;
+create table details as 
+select emplid, TGT_POSITION_DESCR, EMPL_CLASS, COUNTRY, BUSINESS_UNIT, EMAIL_ADDR
+from hrbi.PS_TGT_EMP_CURRENT
+where emplid in (Select emplid from pa.TOM_EMP_LIST);
+quit;
+
+
+data x;
+set pa.tom_emp_list;
+run;
+
+data y;
+set details;
+run;
+
+
+proc sql;
+create table Sample as 
+select a.*, b.TGT_POSITION_DESCR, b.EMPL_CLASS, b.COUNTRY, b.BUSINESS_UNIT, b.EMAIL_ADDR
+from pa.tom_emp_list a left join details b 
+on a.emplid = b.emplid;
+quit;
